@@ -1,0 +1,100 @@
+## Kerberos (GSSAPI) authentication without TLS
+This example contains a basic KDC server and configure both zookeeper and kafka with Kerberos authentication and authorization. Credentials are created without password, a keytab containing credentials is available in a Docker volume named "secret". The following credential are automatically created in the KDC database:
+1. __kafka/admin__ - to access zookeeper
+2. __kafka_producer/producer__  - to access kafka as a producer
+3. __kafka_consumer/consumer__  - to access kafka as a consumer
+
+### Usage
+```bash
+cd kerberos
+# Scripts orchestrating the docker-compose services
+./up
+# Using kinit with a keytab for authentication then invoking kafka interfaces
+docker-compose exec kafka bash -c 'kinit -k -t /var/lib/secret/kafka.key kafka_producer/producer && kafka-console-producer --broker-list kafka:9093 --topic test --producer.config /etc/kafka/consumer.properties'
+docker-compose exec kafka bash -c 'kinit -k -t /var/lib/secret/kafka.key kafka_consumer/consumer && kafka-console-consumer --bootstrap-server kafka:9093 --topic test --consumer.config /etc/kafka/consumer.properties --from-beginning'
+```
+
+### Important configuration files
+<details>
+<summary><a href="kerberos/zookeeper/zookeeper.properties">zookeeper properties</a></summary>
+<pre>
+authProvider.1 = org.apache.zookeeper.server.auth.SASLAuthenticationProvider
+requireClientAuthScheme=sasl
+</pre>
+</details>
+<details>
+<summary><a href="kerberos/zookeeper/zookeeper.sasl.jaas.config">zookeeper server and client jaas configuration</a></summary>
+<pre>
+Server {
+    com.sun.security.auth.module.Krb5LoginModule required
+    useKeyTab=true
+    storeKey=true
+		useTicketCache=false
+    keyTab="/var/lib/secret/kafka.key"
+    principal="zookeeper/zookeeper.kerberos_default@TEST.CONFLUENT.IO";
+};
+</pre>
+</details>
+<details>
+<summary><a href="kerberos/kafka/server.properties">kafka server.properties</a></summary>
+<pre>
+listeners=SASL_PLAINTEXT://kafka:9093
+advertised.listeners=SASL_PLAINTEXT://kafka:9093
+security.inter.broker.protocol=SASL_PLAINTEXT
+sasl.enabled.mechanisms=GSSAPI
+sasl.mechanism.inter.broker.protocol=GSSAPI
+security.inter.broker.protocol=SASL_PLAINTEXT
+sasl.kerberos.service.name=kafka
+allow.everyone.if.no.acl.found=false
+super.users=User:admin;User:kafka
+authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer
+</pre>
+</details>
+<details>
+<summary><a href="kerberos/kafka/kafka.sasl.jaas.config">kafka server and client jaas configuration</a></summary>
+<pre>
+/*
+ * Cluster kerberos services
+ */
+KafkaServer {
+    com.sun.security.auth.module.Krb5LoginModule required
+    useKeyTab=true
+    storeKey=true
+    keyTab="/var/lib/secret/kafka.key"
+    principal="kafka/kafka.kerberos_default@TEST.CONFLUENT.IO";
+};
+
+/*
+ * For client and broker identificatoin
+ */
+KafkaClient {
+    com.sun.security.auth.module.Krb5LoginModule required
+    useKeyTab=true
+    storeKey=true
+    keyTab="/var/lib/secret/kafka.key"
+    principal="admin/kafka.kerberos_default@TEST.CONFLUENT.IO";
+};
+
+/*
+ * For Zookeeper authentication
+ */
+Client {
+    com.sun.security.auth.module.Krb5LoginModule required
+    useKeyTab=true
+    storeKey=true
+		useTicketCache=false
+    keyTab="/var/lib/secret/kafka.key"
+    principal="kafka/kafka.kerberos_default@TEST.CONFLUENT.IO";
+};
+</pre>
+</details>
+<details>
+	<summary><a href="kerberos/kafka/consumer.properties">kafka consumer and producer configuration</a></summary>
+<pre>
+bootstrap.servers=kafka:9093
+security.protocol=SASL_PLAINTEXT
+sasl.kerberos.service.name=kafka
+sasl.jaas.config=com.sun.security.auth.module.Krb5LoginModule required \
+								 useTicketCache=true
+</pre>
+</details>
