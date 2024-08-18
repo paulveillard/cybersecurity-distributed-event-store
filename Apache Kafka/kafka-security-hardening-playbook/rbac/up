@@ -1,0 +1,25 @@
+#!/bin/bash
+
+## start docker-compose up to and including kafka
+docker-compose up -d kafka
+docker-compose up -d tools
+
+# wait for kafka container to be healthy
+source ./functions.sh
+echo
+echo "Waiting for the broker to be healthy"
+retry 10 5 container_healthy kafka
+
+# Create the roles
+echo "Creating role bindings for principals"
+docker-compose exec tools bash -c "/tmp/create-role-bindings.sh" || exit 1
+
+## start remaining services
+
+docker-compose up -d
+
+echo "Services should be up:"
+
+docker-compose ps
+
+echo "Example configuration:"
